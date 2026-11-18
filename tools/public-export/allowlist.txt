@@ -1,0 +1,28 @@
+# Paths (globs) copied to the public repository. Everything else stays private:
+# library data, the space model, the acquisition worker (media/), voice fixtures, account tools.
+app/**
+components/**
+lib/**
+public/icon*
+public/apple-touch-icon.png
+public/manifest.webmanifest
+public/sw.js
+tests/*.test.ts
+tests/smoke.mjs
+tests/auth.mjs
+tests/concurrency.mjs
+tools/build_space.py
+tools/build_stations.py
+tools/covers.py
+tools/covers_audit.py
+tools/years.py
+tools/fact_audit.py
+tools/make-icons.mjs
+tools/public-export/allowlist.txt
+tools/public-export/export.py
+tools/public-export/publish.sh
+next.config.mjs
+package.json
+package-lock.json
+tsconfig.json
+vercel.json

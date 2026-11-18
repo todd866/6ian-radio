@@ -1,0 +1,15 @@
+node_modules
+.next
+.vercel
+.env*
+!.env.example
+*.tsbuildinfo
+next-env.d.ts
+test-results
+/shots
+data/space.json
+data/stations.json
+data/years.json
+data/lines.json
+model/
+__pycache__
