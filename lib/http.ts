@@ -7,11 +7,17 @@ export async function requireAccount(): Promise<Account | NextResponse> {
   return a ?? NextResponse.json({ error: 'signed out' }, { status: 401 });
 }
 // Browser session OR a device token: only for the device API, the queue and song info.
-export async function requireAccountOrDevice(): Promise<Principal | NextResponse> {
-  const a = await currentAccount();
-  if (a) return { ...a, via: 'session' };
+// An explicit Authorization header wins: a stale browser cookie must not shadow (or un-revoke)
+// the token a device deliberately sent.
+export async function requireAccountOrDevice(req?: Request): Promise<Principal | NextResponse> {
+  if (!req?.headers.get('authorization')) {
+    const a = await currentAccount();
+    if (a) return { ...a, via: 'session' };
+  }
   const d = await currentDevice();
-  return d ?? NextResponse.json({ error: 'signed out' }, { status: 401 });
+  if (d) return d;
+  const a = await currentAccount();
+  return a ? { ...a, via: 'session' } : NextResponse.json({ error: 'signed out' }, { status: 401 });
 }
 
 export const noStore = { 'cache-control': 'no-store' };

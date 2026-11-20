@@ -5,8 +5,8 @@ import { stations } from '@/lib/stations';
 // The mood dial and the station mixes, for another front end (Glancebar's popover).
 const MOODS = [['chill', 'Chill'], ['energise', 'Energise'], ['hiphop', 'Hip hop'], ['focus', 'Focus'], ['workout', 'Workout'], ['party', 'Party']] as const;
 
-export async function GET() {
-  const a = await requireAccountOrDevice();
+export async function GET(req: Request) {
+  const a = await requireAccountOrDevice(req);
   if (a instanceof NextResponse) return a;
   return NextResponse.json({
     moods: MOODS.map(([id, label]) => ({ id, label })),

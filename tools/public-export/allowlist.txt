@@ -3,6 +3,7 @@
 app/**
 components/**
 lib/**
+vendor/engine/**
 public/icon*
 public/apple-touch-icon.png
 public/manifest.webmanifest

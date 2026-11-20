@@ -1,22 +1,9 @@
-import { getJSON, putJSON, capStore } from './r2';
-import { DEFAULT_TZ } from './rules';
+import { getJSON, putJSON, capStore } from './r2.ts';
+import { DEFAULT_TZ } from '../vendor/engine/rules.ts';
 import type { Account } from './auth';
 
-export type Ev = { ts: number; s: string; ev: 'play' | 'skip' | 'like' | 'unlike' | 'finish' | 'more' | 'less' | 'dislike' | 'undislike'; via?: string; src?: 'ai' | 'control'; nw?: number; m?: string; pos?: number };
-export type Profile = {
-  user: string;
-  qa?: boolean;
-  style: 'home' | 'discovery';
-  tz: string;
-  newShare?: number;
-  taste?: string[]; // first-run picker: genres this listener chose
-  likes: string[];
-  dislikes?: string[]; // never play (the thumbs-down button here, or a dislike in Glancebar)
-  skips: Record<string, number>;
-  heard: Record<string, number>;
-  events: Ev[];
-  updatedAt?: number;
-};
+export type { Ev, Profile } from '../vendor/engine/profile.ts';
+import type { Ev, Profile } from '../vendor/engine/profile.ts';
 
 // QA runs (?silent=1) keep their own profile so tests never train or skew a listener's.
 const key = (u: string, qa = false) => `radio/profiles/${u}${qa ? '-qa' : ''}.json`;
@@ -30,6 +17,53 @@ export function freshProfile(a: Account): Profile {
 export async function loadProfile(a: Account, qa = false): Promise<Profile> {
   const p = await getJSON<Profile>(key(a.id, qa));
   return { ...freshProfile(a), ...(p ?? {}), style: a.style, qa };
+}
+
+// The unified taste snapshot (music/taste/<listener>/snapshot.json, built by musicstore from the
+// taste log of every surface): the queue engine's preferred profile source. Same shape as
+// musicstore.build_snapshot; the account's style still wins, as it does for the radio profile.
+export type Snapshot = {
+  listener: string; tz: string; style: string; newShare: number | null;
+  likes: string[]; dislikes: string[]; skips: Record<string, number>; heard: Record<string, number>;
+  generatedAt: string;
+};
+
+const snapshotKey = (u: string, qa = false) => `music/taste/${u}${qa ? '-qa' : ''}/snapshot.json`;
+
+export function snapshotToProfile(s: Snapshot, a: Account, qa = false): Profile {
+  return {
+    user: a.id, style: a.style, qa, tz: s.tz, ...(s.newShare != null ? { newShare: s.newShare } : {}),
+    likes: s.likes ?? [], dislikes: s.dislikes ?? [], skips: s.skips ?? {}, heard: s.heard ?? {}, events: [],
+  };
+}
+
+type Getter = (k: string) => Promise<unknown>;
+
+export async function loadQueueProfile(a: Account, qa = false, get: Getter = getJSON): Promise<Profile> {
+  const s = (await get(snapshotKey(a.id, qa))) as Snapshot | null;
+  if (s) return snapshotToProfile(s, a, qa);
+  const p = (await get(key(a.id, qa))) as Profile | null;
+  return { ...freshProfile(a), ...(p ?? {}), style: a.style, qa };
+}
+
+// Write-through: after an event lands in the radio profile, refresh the snapshot from it so
+// the queue (and the Macs, until musicstore's next sync rebuilds from the full log) sees it.
+// The snapshot is MERGED with what is already there: musicstore folds taste from every surface
+// (TV, Glancebar spools) into it, and a plain overwrite from the radio-only profile would
+// erase all of that between syncs. Union the sets, keep the max skip count and heard time.
+export async function writeSnapshotFromProfile(p: Profile): Promise<void> {
+  if (p.qa) return; // a QA run never trains anything real
+  const k = snapshotKey(p.user);
+  const prev = (await getJSON<Snapshot>(k)) ?? null;
+  const body: Snapshot = {
+    listener: p.user, tz: p.tz, style: p.style, newShare: p.newShare ?? null,
+    likes: [...new Set([...(prev?.likes ?? []), ...p.likes])],
+    dislikes: [...new Set([...(prev?.dislikes ?? []), ...(p.dislikes ?? [])])],
+    skips: { ...(prev?.skips ?? {}), ...Object.fromEntries(Object.entries(p.skips).map(([s, n]) => [s, Math.max(n, prev?.skips?.[s] ?? 0)])) },
+    heard: { ...(prev?.heard ?? {}), ...p.heard },
+    generatedAt: new Date().toISOString(),
+  };
+  await putJSON(k, body);
 }
 
 export async function saveProfile(p: Profile) {

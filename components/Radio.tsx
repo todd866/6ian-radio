@@ -9,6 +9,7 @@ import { SetView } from './SetView';
 import { MapView } from './MapView';
 import { MeView } from './MeView';
 import { createEngine, type Engine } from './engine';
+import { createHeartbeat, type Heartbeat } from '../lib/heartbeat';
 import { useVoice, MicButton, type VoiceResult } from './Voice';
 import { Home, Tile, Art, StationPage, type TileT, type StationT } from './Home';
 import { WhyView, AboutView, LyricsView, prefetchLyrics } from './InfoPanel';
@@ -48,6 +49,7 @@ export default function Radio({ name, style, init }: { name: string; style: stri
   const playedFor = useRef<string | null>(null);
   const silent = useRef(false);
   const fetching = useRef(false);
+  const hb = useRef<Heartbeat | null>(null);
 
   const src = useCallback((t: Presented) => `/api/audio/${t.s}?q=${lossless ? 'alac' : 'aac'}`, [lossless]);
 
@@ -63,9 +65,23 @@ export default function Radio({ name, style, init }: { name: string; style: stri
     preload.current = p;
     setCanLossless(a.canPlayType('audio/mp4; codecs="alac"') !== '');
     try { setLossless(localStorage.getItem('mr.lossless') === '1' && a.canPlayType('audio/mp4; codecs="alac"') !== ''); } catch {}
+    let host = 'browser';
+    try {
+      host = localStorage.getItem('mr.now-host') ?? '';
+      if (!host) { host = Math.random().toString(36).slice(2, 12); localStorage.setItem('mr.now-host', host); }
+    } catch {}
+    hb.current = createHeartbeat({
+      put: (doc) => fetch('/api/device/now', {
+        method: 'PUT', headers: { 'content-type': 'application/json', ...qaHeaders() }, body: JSON.stringify(doc), keepalive: true,
+      }).then((r) => { if (!r.ok) throw new Error(String(r.status)); }),
+    });
+    hb.current.host = host;
+    // Tab close never runs the React unmount; pagehide is the last reliable beat.
+    const onHide = () => hb.current?.stop();
+    window.addEventListener('pagehide', onHide, { capture: true });
     (window as unknown as { __radio: unknown }).__radio = { audio: a, engine: eng.current };
     document.documentElement.dataset.ready = '1';
-    return () => { a.pause(); a.src = ''; };
+    return () => { window.removeEventListener('pagehide', onHide, { capture: true }); hb.current?.stop(); a.pause(); a.src = ''; };
   }, []);
 
   // Load a track into the element (does not start it unless asked).
@@ -243,6 +259,7 @@ export default function Radio({ name, style, init }: { name: string; style: stri
     if (!a) return;
     const onTime = () => {
       setPos(a.currentTime);
+      if (!a.paused) beat(a.currentTime);
       if (Number.isFinite(a.duration)) setDur(a.duration);
       if (cur && playedFor.current !== cur.pt && a.currentTime > 0.3) { playedFor.current = cur.pt; event(cur, 'play'); }
       // Warm the next song when this one is nearly done.
@@ -251,8 +268,12 @@ export default function Radio({ name, style, init }: { name: string; style: stri
         preload.current.dataset.s = n.s; preload.current.src = src(n); preload.current.load();
       }
     };
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
+    const beat = (position: number) => {
+      if (!cur || !hb.current) return;
+      hb.current.beat({ surface: 'browser', host: hb.current.host, sha: cur.s, title: cur.t, artist: cur.a, position, duration: Number.isFinite(a.duration) ? a.duration : undefined });
+    };
+    const onPlay = () => { setPlaying(true); beat(a.currentTime); };
+    const onPause = () => { setPlaying(false); hb.current?.stop(); };
     const onEnded = () => advance('finish');
     const onError = () => { setErr('Stream failed; skipping.'); setTimeout(() => advance('skip'), 800); };
     a.addEventListener('timeupdate', onTime); a.addEventListener('play', onPlay); a.addEventListener('pause', onPause);

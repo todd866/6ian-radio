@@ -14,7 +14,11 @@ function r2() {
 
 function objectUrl(key: string) {
   if (!key?.trim() || key.endsWith('/')) throw new Error('refusing an empty R2 key'); // never sign the bucket root
-  return new URL(`${env('R2_ENDPOINT')}/${env('R2_BUCKET')}/${key.split('/').map(encodeURIComponent).join('/')}`);
+  // encodeURIComponent leaves '.' alone, so a '..' segment would URL-resolve outside the
+  // allowed prefix no matter which allowlist regex matched. No key we write needs one.
+  const segs = key.split('/');
+  if (segs.some((s) => !s || s === '.' || s === '..')) throw new Error(`refusing a dot-segment R2 key: ${key.slice(0, 80)}`);
+  return new URL(`${env('R2_ENDPOINT')}/${env('R2_BUCKET')}/${segs.map(encodeURIComponent).join('/')}`);
 }
 
 // Signed GET. The signing time is floored to `windowS` so the same object gets the same URL
@@ -37,7 +41,7 @@ export async function getJSON<T>(key: string): Promise<T | null> {
 
 // Only ever writes under radio/profiles/: the masters are never touched by the app.
 export async function putJSON(key: string, body: unknown): Promise<void> {
-  if (!/^radio\/(profiles|jobs|accounts|tokens|claims|info|devices)\//.test(key)) throw new Error('refusing to write outside the radio app prefixes');
+  if (!/^(radio\/(profiles|jobs|accounts|tokens|claims|info|devices)\/|music\/taste\/[a-z0-9][a-z0-9_-]{0,31}\/snapshot\.json$|music\/now\/[a-z0-9][a-z0-9_-]{0,31}\/(browser|mac|tv)-[a-z0-9][a-z0-9_-]{0,31}\.json$)/.test(key)) throw new Error('refusing to write outside the radio app prefixes');
   const bytes = Buffer.from(JSON.stringify(body)); // explicit length: R2 answers 411 to a chunked PUT
   const res = await r2().fetch(objectUrl(key).toString(), {
     method: 'PUT', body: bytes, headers: { 'content-type': 'application/json', 'content-length': String(bytes.length) },
@@ -57,7 +61,7 @@ export const capStore = {
     return { body: await res.json(), etag };
   },
   async putIf(key: string, body: unknown, etag: string | null) {
-    if (!/^radio\/((caps|profiles|emails|tokens|claims)\/|extra\.json$|media-extra\.json$)/.test(key)) throw new Error('refusing to write outside the radio app prefixes');
+    if (!/^radio\/((caps|profiles|emails|tokens|claims|info)\/|extra\.json$|media-extra\.json$)/.test(key)) throw new Error('refusing to write outside the radio app prefixes'); // radio/info/: addFlag's CAS writes
     const bytes = Buffer.from(JSON.stringify(body));
     const res = await r2().fetch(objectUrl(key).toString(), {
       method: 'PUT', body: bytes,

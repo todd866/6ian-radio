@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireAccount, noStore, isQa } from '@/lib/http';
-import { loadProfile, updateProfile, scoreboard } from '@/lib/profile';
+import { loadProfile, updateProfile, scoreboard, writeSnapshotFromProfile } from '@/lib/profile';
 import { media } from '@/lib/media';
 import { getJSON } from '@/lib/r2';
 import { space } from '@/lib/space';
@@ -48,5 +48,8 @@ export async function POST(req: Request) {
     if (Array.isArray(body.taste)) pr.taste = body.taste.filter((x: unknown) => typeof x === 'string').slice(0, 6);
     if (typeof body.newShareDelta === 'number') pr.newShare = Math.min(1, Math.max(0, (pr.newShare ?? 0.6) + body.newShareDelta));
   });
+  // tz / newShare changes must reach the snapshot too, or the next musicstore sync (which now
+  // carries them forward from the existing snapshot) reverts them.
+  await writeSnapshotFromProfile(p).catch(() => {});
   return NextResponse.json({ ok: true, tz: p.tz, newShare: p.newShare }, { headers: noStore });
 }

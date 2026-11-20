@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAccountOrDevice, noStore, isQa } from '@/lib/http';
 import { buildQueue } from '@/lib/engine';
-import { loadProfile } from '@/lib/profile';
+import { loadQueueProfile } from '@/lib/profile';
 import { media } from '@/lib/media';
 import { present } from '@/lib/present';
 import { space, refreshExtra } from '@/lib/space';
@@ -9,10 +9,10 @@ import { localClock } from '@/lib/rules';
 import { playableFor, uaCanAlac } from '@/lib/playable';
 
 export async function POST(req: Request) {
-  const a = await requireAccountOrDevice();
+  const a = await requireAccountOrDevice(req);
   if (a instanceof NextResponse) return a;
   const body = await req.json().catch(() => ({}));
-  const [profile, m] = await Promise.all([loadProfile(a, isQa(req)), media(typeof body.start === 'string' && !space().bySha.has(body.start))]);
+  const [profile, m] = await Promise.all([loadQueueProfile(a, isQa(req)), media(typeof body.start === 'string' && !space().bySha.has(body.start))]);
   await refreshExtra();
   const S = space();
   const fresh = typeof body.start === 'string' && !S.bySha.has(body.start); // a song that just landed

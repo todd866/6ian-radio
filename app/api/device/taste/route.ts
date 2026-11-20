@@ -5,7 +5,7 @@ import { space, refreshExtra } from '@/lib/space';
 
 // This account's likes and dislikes (and recent plays) by name, for another player to apply.
 export async function GET(req: Request) {
-  const a = await requireAccountOrDevice();
+  const a = await requireAccountOrDevice(req);
   if (a instanceof NextResponse) return a;
   await refreshExtra();
   const S = space();

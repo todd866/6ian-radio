@@ -18,7 +18,7 @@ const GROUP: Record<string, string> = { core: 'Wu-Tang & the core', golden: 'gol
 // Why this / About / Lyrics for one song. Facts only: our records, Apple's catalogue, MusicBrainz,
 // Wikipedia's summary (linked), LRCLIB.
 export async function GET(req: Request, ctx: { params: Promise<{ sha: string }> }) {
-  const a = await requireAccountOrDevice();
+  const a = await requireAccountOrDevice(req);
   if (a instanceof NextResponse) return a;
   await refreshExtra();
   const { sha } = await ctx.params;

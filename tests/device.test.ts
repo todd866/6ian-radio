@@ -34,7 +34,7 @@ function routes(dir: string): string[] {
     return d.isDirectory() ? routes(p) : d.name === 'route.ts' || d.name.endsWith('.tsx') ? [p] : [];
   });
 }
-const ALLOWED = new Set(['app/api/device/moods/route.ts', 'app/api/device/signals/route.ts', 'app/api/device/taste/route.ts', 'app/api/device/lookup/route.ts', 'app/api/queue/route.ts', 'app/api/info/[sha]/route.ts']);
+const ALLOWED = new Set(['app/api/device/moods/route.ts', 'app/api/device/signals/route.ts', 'app/api/device/taste/route.ts', 'app/api/device/lookup/route.ts', 'app/api/queue/route.ts', 'app/api/device/now/route.ts', 'app/api/info/[sha]/route.ts']);
 
 test('session-only routes never accept a device (email, claim, verify, me, login, flags, pages...)', () => {
   const files = routes(path.join(ROOT, 'app')).map((f) => path.relative(ROOT, f));
