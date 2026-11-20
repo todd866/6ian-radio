@@ -102,20 +102,25 @@ export type Lyrics = { synced?: { t: number; line: string }[]; plain?: string; s
 
 // LRCLIB: an exact get (artist, title, album, duration within 2 s); a search hit only when artist and
 // title match and the length is within 3 s. Otherwise none, with a Genius search link.
-export async function lyrics(artist: string, title: string, album: string, dur: number): Promise<Lyrics> {
+export async function lyrics(artist: string, title: string, album: string, dur: number, lrclibId?: number): Promise<Lyrics> {
   const geniusUrl = `https://genius.com/search?q=${encodeURIComponent(`${primary(artist)} ${title.replace(/\s*[\(\[].*$/, '')}`)}`;
-  return cached('lyrics', `${artist}|${title}|${Math.round(dur)}`, 90, async () => {
+  return cached('lyrics', `${artist}|${title}|${Math.round(dur)}|${lrclibId ?? ''}`, 90, async () => {
     type L = { id?: number; artistName?: string; trackName?: string; duration?: number; syncedLyrics?: string; plainLyrics?: string; instrumental?: boolean };
     let r: L | null = null;
-    const q = new URLSearchParams({ artist_name: primary(artist), track_name: title.replace(/\s*[\(\[]feat.*$/i, '').trim() });
-    if (album) q.set('album_name', album);
-    if (dur) q.set('duration', String(Math.round(dur)));
-    try { r = await json(`https://lrclib.net/api/get?${q}`); } catch {
-      try {
-        const s = await json(`https://lrclib.net/api/search?${new URLSearchParams({ track_name: title.replace(/\s*[\(\[].*$/, ''), artist_name: primary(artist) })}`);
-        r = (Array.isArray(s) ? (s as L[]) : []).filter((x) => artistOk(artist, x.artistName ?? '') && norm(x.trackName ?? '') === norm(title) && (!dur || Math.abs((x.duration ?? 0) - dur) <= 3))
-          .sort((a, b) => Number(!!b.syncedLyrics) - Number(!!a.syncedLyrics))[0] ?? null;
-      } catch { r = null; }
+    if (lrclibId) {
+      try { r = await json(`https://lrclib.net/api/get/${lrclibId}`); } catch { r = null; }
+    }
+    if (!r) {
+      const q = new URLSearchParams({ artist_name: primary(artist), track_name: title.replace(/\s*[\(\[]feat.*$/i, '').trim() });
+      if (album) q.set('album_name', album);
+      if (dur) q.set('duration', String(Math.round(dur)));
+      try { r = await json(`https://lrclib.net/api/get?${q}`); } catch {
+        try {
+          const s = await json(`https://lrclib.net/api/search?${new URLSearchParams({ track_name: title.replace(/\s*[\(\[].*$/, ''), artist_name: primary(artist) })}`);
+          r = (Array.isArray(s) ? (s as L[]) : []).filter((x) => artistOk(artist, x.artistName ?? '') && norm(x.trackName ?? '') === norm(title) && (!dur || Math.abs((x.duration ?? 0) - dur) <= 3))
+            .sort((a, b) => Number(!!b.syncedLyrics) - Number(!!a.syncedLyrics))[0] ?? null;
+        } catch { r = null; }
+      }
     }
     const out: Lyrics = { geniusUrl };
     if (!r || r.instrumental) return out;

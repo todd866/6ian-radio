@@ -2,7 +2,7 @@ import { getJSON, putJSON, capStore } from './r2';
 import { DEFAULT_TZ } from './rules';
 import type { Account } from './auth';
 
-export type Ev = { ts: number; s: string; ev: 'play' | 'skip' | 'like' | 'unlike' | 'finish' | 'more' | 'less'; src?: 'ai' | 'control'; nw?: number; m?: string; pos?: number };
+export type Ev = { ts: number; s: string; ev: 'play' | 'skip' | 'like' | 'unlike' | 'finish' | 'more' | 'less' | 'dislike' | 'undislike'; via?: string; src?: 'ai' | 'control'; nw?: number; m?: string; pos?: number };
 export type Profile = {
   user: string;
   qa?: boolean;
@@ -11,6 +11,7 @@ export type Profile = {
   newShare?: number;
   taste?: string[]; // first-run picker: genres this listener chose
   likes: string[];
+  dislikes?: string[]; // never play (the thumbs-down button here, or a dislike in Glancebar)
   skips: Record<string, number>;
   heard: Record<string, number>;
   events: Ev[];
@@ -41,6 +42,9 @@ export function applyEvent(p: Profile, e: Ev) {
   p.events.push(e);
   if (e.ev === 'play') p.heard[e.s] = e.ts;
   if (e.ev === 'like' && !p.likes.includes(e.s)) p.likes.push(e.s);
+  if (e.ev === 'like') p.dislikes = (p.dislikes ?? []).filter((s) => s !== e.s);
+  if (e.ev === 'dislike') { p.likes = p.likes.filter((s) => s !== e.s); if (!(p.dislikes ?? []).includes(e.s)) p.dislikes = [...(p.dislikes ?? []), e.s]; }
+  if (e.ev === 'undislike') p.dislikes = (p.dislikes ?? []).filter((s) => s !== e.s);
   if (e.ev === 'unlike') p.likes = p.likes.filter((s) => s !== e.s);
   if (e.ev === 'skip') p.skips[e.s] = (p.skips[e.s] ?? 0) + 1;
   if (e.ev === 'finish' && p.skips[e.s]) p.skips[e.s] = Math.max(0, p.skips[e.s] - 1);

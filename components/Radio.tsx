@@ -349,6 +349,11 @@ export default function Radio({ name, style, init }: { name: string; style: stri
     jump({ mood: `station:${st.id}` }).then(() => eng.current?.play().catch(() => {}));
     setView('np');
   }, [jump]);
+  // The music element starting (skip, a tile, the car's next button) ends the live stream.
+  useEffect(() => {
+    const off = eng.current?.onMusicPlay(() => { if (live.current && !live.current.paused) live.current.pause(); setLiveOn(null); });
+    return () => { off?.(); };
+  }, []);
   const listenLive = useCallback((st: StationT) => {
     if (!st.live) return;
     eng.current?.pause();
@@ -431,7 +436,7 @@ export default function Radio({ name, style, init }: { name: string; style: stri
                 <span>{fmt(pos)}</span><span>{fmt(dur)}</span>
               </div>
               <div className="transport">
-                <button aria-label="Dislike" onClick={() => steerBy(-1)} data-testid="less"><Icon n="thumbdown" /></button>
+                <button aria-label="Dislike" onClick={() => { event(cur, 'dislike'); steerBy(-1); }} data-testid="less"><Icon n="thumbdown" /></button>
                 <button aria-label="Back" onClick={back}><Icon n="prev" size={28} /></button>
                 <button className="play" aria-label={playing ? 'Pause' : 'Play'} onClick={toggle} data-testid="play"><Icon n={playing ? 'pause' : 'play'} size={30} /></button>
                 <button aria-label="Skip" onClick={() => advance('skip')} data-testid="skip"><Icon n="next" size={28} /></button>

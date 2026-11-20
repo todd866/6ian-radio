@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import { requireAccount, noStore, isQa } from '@/lib/http';
+import { requireAccount, requireAccountOrDevice, noStore, isQa } from '@/lib/http';
 import { space, refreshExtra, dot } from '@/lib/space';
 import { stations } from '@/lib/stations';
 import { loadProfile } from '@/lib/profile';
 import { media } from '@/lib/media';
 import { about, lyrics } from '@/lib/info';
+import { cachedFact } from '@/lib/store';
 import { capStore } from '@/lib/r2';
 import { addFlag, hiddenFor, FlagRejected } from '@/lib/flags';
 import { reserveCall, reserveIpFlag, clientIp, CapReached } from '@/lib/voicecap';
@@ -17,7 +18,7 @@ const GROUP: Record<string, string> = { core: 'Wu-Tang & the core', golden: 'gol
 // Why this / About / Lyrics for one song. Facts only: our records, Apple's catalogue, MusicBrainz,
 // Wikipedia's summary (linked), LRCLIB.
 export async function GET(req: Request, ctx: { params: Promise<{ sha: string }> }) {
-  const a = await requireAccount();
+  const a = await requireAccountOrDevice();
   if (a instanceof NextResponse) return a;
   await refreshExtra();
   const { sha } = await ctx.params;
@@ -30,12 +31,15 @@ export async function GET(req: Request, ctx: { params: Promise<{ sha: string }> 
   const qa = isQa(req);
   const hidden = await hiddenFor(capStore, sha, a.id, qa);
   if (kind === 'about') {
-    const ab = await about(t.a, t.t, t.al, t.y);
-    return NextResponse.json({ facts: ab.facts.filter((f) => !hidden.has(f.k)), artist: hidden.has('bio') ? null : ab.artist }, { headers: noStore });
+    const sf = cachedFact(sha);
+    const ab = await about(t.a, t.t, t.al, sf?.year ?? t.y);
+    const artist = ab.artist ?? (sf?.bio?.url && sf?.bio?.title ? { summary: sf.bio.description ?? '', url: sf.bio.url, title: sf.bio.title } : null);
+    return NextResponse.json({ facts: ab.facts.filter((f) => !hidden.has(f.k)), artist: hidden.has('bio') ? null : artist }, { headers: noStore });
   }
   if (kind === 'lyrics') {
     if (hidden.has('lyrics')) return NextResponse.json({ geniusUrl: `https://genius.com/search?q=${encodeURIComponent(`${t.a} ${t.t}`)}`, flagged: true }, { headers: noStore });
-    return NextResponse.json(await lyrics(t.a, t.t, t.al, (await media())[sha]?.dur ?? 0), { headers: noStore });
+    const sf = cachedFact(sha);
+    return NextResponse.json(await lyrics(t.a, t.t, t.al, (await media())[sha]?.dur ?? 0, sf?.lyrics?.id), { headers: noStore });
   }
   const rows = await whyRows(t, sha, i, a, qa);
   return NextResponse.json({ rows: rows.filter((r) => !hidden.has(r.k)) }, { headers: noStore });

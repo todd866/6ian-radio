@@ -15,7 +15,9 @@ from pathlib import Path
 import numpy as np
 
 HOME = Path.home()
-sys.path.insert(0, str(HOME / 'Projects/glancebar/tools/music-embed'))
+for _cand in (HOME / 'Projects/music-core/embed', HOME / 'Projects/glancebar/tools/music-embed'):
+    if _cand.is_dir() and str(_cand) not in sys.path:
+        sys.path.insert(0, str(_cand))
 from embed import match_key, music_kind_for_genre  # noqa: E402
 
 DEF = dict(
@@ -138,6 +140,15 @@ def main():
             for k in (x.get('sha256'), x.get('catalogue_relative_path')):
                 if k:
                     scout[k] = info
+    # Songs the radio's fetch worker brought in (lane and requests): finds, with their real source.
+    lane_done = HOME / '.local/state/music-radio/lane-done.jsonl'
+    for line in (lane_done.read_text().splitlines() if lane_done.exists() else []):
+        try:
+            x = json.loads(line)
+        except ValueError:
+            continue
+        if x.get('sha') and x['sha'] not in scout:
+            scout[x['sha']] = dict(src=x.get('tag') or 'lane', why=x.get('why'), at=x.get('at'))
     by_path = {e['relativePath']: s for s, e in cat.items()}
 
     lib_by_key = collections.defaultdict(list)
@@ -168,8 +179,14 @@ def main():
         sc = scout.get(sha) or scout.get(c['relativePath'])
         if sc:
             rows[-1]['sc'] = sc
-        # "new": unheard and not a favourite he chose, or a scout find he has not played.
-        rows[-1]['nw'] = 1 if (rows[-1]['p'] == 0 and (rows[-1]['f'] == 0 or sc)) else 0
+        # "new" means new to him: a scout, lane or request find, not yet played. Everything else in
+        # the catalogue is his own Apple Music library, including unplayed albums (owner, 19 Nov:
+        # "it's all just my current albums"); library.json misses many album tracks, so it is not
+        # the test. o=1 marks his own library songs.
+        own = not sc
+        if own:
+            rows[-1]['o'] = 1
+        rows[-1]['nw'] = 1 if (not own and rows[-1]['p'] == 0) else 0
         keep.append(i)
     gaps['inR2NotEmbedded'] = len(set(cat) - {m['id'] for m in idx})
     V = V[keep]

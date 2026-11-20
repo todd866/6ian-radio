@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireAccount } from '@/lib/http';
 import { space, refreshExtra } from '@/lib/space';
 import { media } from '@/lib/media';
+import { audioKey } from '@/lib/audiokey';
 import { presign } from '@/lib/r2';
 import { tunnelUrl, streamToken } from '@/lib/tunnel';
 
@@ -29,7 +30,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ sha: string }> 
     if (!t) return new NextResponse(null, { status: 503 });
     up = await fetch(`${t}/stream/${sha}.mp4?${streamToken(sha, a.id)}`, { headers: range ? { range } : {}, signal: AbortSignal.timeout(20000) });
   } else {
-    const key = q === 'alac' || !info?.aac ? S.tracks[i].key : `radio/aac/${sha}.mp4`;
+    const key = audioKey(sha, S.tracks[i].key, !!info?.aac, q);
+    if (!key) return new NextResponse(null, { status: 404 });
     up = await fetch(await presign(key, 600), { headers: range ? { range } : {} });
   }
   if (!up.ok && up.status !== 206) return new NextResponse(null, { status: up.status });

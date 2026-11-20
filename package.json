@@ -9,7 +9,7 @@
     "test": "node --test --experimental-strip-types tests/*.test.ts",
     "test:smoke": "node tests/smoke.mjs",
     "test:voice": "node tests/voice.mjs",
-    "ci": "npm test && node tests/smoke.mjs ${RADIO_URL:-https://radio.example.com} && node tests/voice.mjs ${RADIO_URL:-https://radio.example.com}"
+    "ci": "npm test && node tests/smoke.mjs ${RADIO_URL:-https://radio.example.com} && node tests/live.mjs ${RADIO_URL:-https://radio.example.com} && node tests/voice.mjs ${RADIO_URL:-https://radio.example.com}"
   },
   "keywords": [],
   "author": "",

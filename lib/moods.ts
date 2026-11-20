@@ -27,13 +27,15 @@ export const MOODS: Mood[] = [
 ];
 
 import { stationById } from './stations';
+import { stationsOf } from './source';
 
 export function moodById(id: string | undefined): Mood | undefined {
   if (id?.startsWith('station:')) { // what this station played that's in the library
     const st = stationById(id.slice(8));
     if (!st) return undefined;
     const set = new Set(st.shas);
-    return { id, label: st.name, freq: '', member: (t) => set.has(t.s) };
+    const sid = st.id;
+    return { id, label: st.name, freq: '', member: (t) => set.has(t.s) || stationsOf(t).includes(sid) };
   }
   return MOODS.find((m) => m.id === id);
 }

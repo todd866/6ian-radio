@@ -13,6 +13,7 @@ function r2() {
 }
 
 function objectUrl(key: string) {
+  if (!key?.trim() || key.endsWith('/')) throw new Error('refusing an empty R2 key'); // never sign the bucket root
   return new URL(`${env('R2_ENDPOINT')}/${env('R2_BUCKET')}/${key.split('/').map(encodeURIComponent).join('/')}`);
 }
 
@@ -36,7 +37,7 @@ export async function getJSON<T>(key: string): Promise<T | null> {
 
 // Only ever writes under radio/profiles/: the masters are never touched by the app.
 export async function putJSON(key: string, body: unknown): Promise<void> {
-  if (!/^radio\/(profiles|jobs|accounts|tokens|claims|info)\//.test(key)) throw new Error('refusing to write outside the radio app prefixes');
+  if (!/^radio\/(profiles|jobs|accounts|tokens|claims|info|devices)\//.test(key)) throw new Error('refusing to write outside the radio app prefixes');
   const bytes = Buffer.from(JSON.stringify(body)); // explicit length: R2 answers 411 to a chunked PUT
   const res = await r2().fetch(objectUrl(key).toString(), {
     method: 'PUT', body: bytes, headers: { 'content-type': 'application/json', 'content-length': String(bytes.length) },
@@ -61,6 +62,31 @@ export const capStore = {
     const res = await r2().fetch(objectUrl(key).toString(), {
       method: 'PUT', body: bytes,
       headers: { 'content-type': 'application/json', 'content-length': String(bytes.length), ...(etag ? { 'if-match': etag } : { 'if-none-match': '*' }) },
+    });
+    if (res.status === 412 || res.status === 409) return false;
+    if (!res.ok) throw new Error(`R2 PUT ${key}: ${res.status}`);
+    return true;
+  },
+};
+
+// Append-only CAS text store strictly for this app's own unified taste-log shards.
+const TASTE_KEY_RE = /^music\/taste\/[a-z0-9][a-z0-9_-]{0,31}\/\d{4}-\d{2}\/6ian-[a-z0-9_-]{1,32}\.jsonl$/;
+export const tasteStore = {
+  async get(key: string): Promise<{ text: string; etag: string } | null> {
+    if (!TASTE_KEY_RE.test(key)) throw new Error('refusing to read outside 6ian taste shards');
+    const res = await r2().fetch(objectUrl(key).toString(), { method: 'GET', headers: { 'accept-encoding': 'identity' } });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`R2 GET ${key}: ${res.status}`);
+    const etag = res.headers.get('etag')?.replace(/^W\//, '');
+    if (!etag) throw new Error('R2 GET without etag');
+    return { text: await res.text(), etag };
+  },
+  async putIf(key: string, text: string, etag: string | null): Promise<boolean> {
+    if (!TASTE_KEY_RE.test(key)) throw new Error('refusing to write outside 6ian taste shards');
+    const bytes = Buffer.from(text, 'utf8');
+    const res = await r2().fetch(objectUrl(key).toString(), {
+      method: 'PUT', body: bytes,
+      headers: { 'content-type': 'application/x-ndjson', 'content-length': String(bytes.length), ...(etag ? { 'if-match': etag } : { 'if-none-match': '*' }) },
     });
     if (res.status === 412 || res.status === 409) return false;
     if (!res.ok) throw new Error(`R2 PUT ${key}: ${res.status}`);

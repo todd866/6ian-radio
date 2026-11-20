@@ -30,12 +30,16 @@ Album art in these shots is replaced by the app's generated sleeves.
 ## Architecture
 
 - **Next.js 15 (App Router) on Vercel.** Audio and covers stream from **Cloudflare R2** through
-  presigned URLs and a same-origin proxy. Profiles, counters and caches are R2 objects updated with
+  presigned URLs and a same-origin proxy. Profiles, counters, and caches are R2 objects updated with
   ETag compare-and-swap.
+- **Unified store ([music-core](https://github.com/todd866/music-core)):** shares one R2 contract
+  with [Glancebar](https://github.com/todd866/glancebar) and [Onto the TV](https://github.com/todd866/onto-the-tv):
+  `music/ids.json` (canonical alias table), `music/facts.json` (sourced MusicBrainz years, LRCLIB
+  lyrics IDs, Wikipedia summaries), and `music/taste/` (append-only per-listener event log, written
+  directly by 6IAN via CAS in `lib/store.ts`).
 - **The map:** `tools/build_space.py` turns 3072-D Gemini audio embeddings into `data/space.json`
   (PCA vectors, t-SNE map, k-means corners). `tools/build_stations.py` maps station playlists onto
-  it. `tools/years.py` fills original release years from MusicBrainz; `tools/fact_audit.py`
-  cross-checks a random sample against Apple's catalogue each night.
+  it; `tools/fact_audit.py` cross-checks a random sample against Apple's catalogue each night.
 - **An optional home worker** (not included) can fetch requested songs: see
   [docs/acquisition.md](docs/acquisition.md). Bring your own library or acquisition source.
 

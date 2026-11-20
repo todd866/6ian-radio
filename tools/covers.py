@@ -16,7 +16,9 @@ from PIL import Image
 
 HOME = Path.home()
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(HOME / 'Projects/glancebar/tools/music-embed'))
+for _cand in (HOME / 'Projects/music-core/embed', HOME / 'Projects/glancebar/tools/music-embed'):
+    if _cand.is_dir() and str(_cand) not in sys.path:
+        sys.path.insert(0, str(_cand))
 from embed import match_key  # noqa: E402
 
 STATE = HOME / '.local/state/music-radio/covers'

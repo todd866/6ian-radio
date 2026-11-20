@@ -9,7 +9,9 @@ from pathlib import Path
 
 HOME = Path.home()
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(HOME / 'Projects/glancebar/tools/music-embed'))
+for _cand in (HOME / 'Projects/music-core/embed', HOME / 'Projects/glancebar/tools/music-embed'):
+    if _cand.is_dir() and str(_cand) not in sys.path:
+        sys.path.insert(0, str(_cand))
 from embed import match_key  # noqa: E402
 from PIL import Image  # noqa: E402
 
@@ -108,6 +110,22 @@ def main():
     for t in S['tracks']:
         if not t.get('gx'):
             by_key.setdefault(match_key(t['a'], t['t']), t['s'])
+    # Finds the radio fetched (embedded extras, and lane songs still waiting for an embedding): a
+    # station's plays should be matched against these too, not only his library.
+    try:
+        ex = json.loads(subprocess.run(['rclone', 'cat', f'{REMOTE}/radio/extra.json'], capture_output=True, timeout=120).stdout or b'{}')
+        for t in ex.get('tracks', []):
+            by_key.setdefault(match_key(t['a'], t['t']), t['s'])
+    except (ValueError, subprocess.SubprocessError):
+        pass
+    lane = HOME / '.local/state/music-radio/lane-done.jsonl'
+    for l in (lane.read_text().splitlines() if lane.exists() else []):
+        try:
+            x = json.loads(l)
+            if x.get('sha'):
+                by_key.setdefault(match_key(x['artist'], x['title']), x['sha'])
+        except (ValueError, KeyError):
+            pass
     out = []
     for sid, name, color, home, lives in STATIONS:
         plays = []

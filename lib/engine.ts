@@ -7,6 +7,7 @@ import { ruleAt, type Rule } from './rules';
 import type { Profile } from './profile';
 import { genreById } from './genres';
 import { stationById } from './stations';
+import { sourceOf, stationsOf } from './source';
 
 export type Steer = { s: string; d: 1 | -1; early?: boolean };
 export type QueueReq = {
@@ -52,7 +53,7 @@ export function buildQueue(req: QueueReq, profile: Profile, now = new Date(), se
   const recentIx = new Set<number>(history.map((s) => S.bySha.get(s)!));
   const dayAgo = now.getTime() - 3 * 86400e3;
   for (const [s, ts] of Object.entries(profile.heard ?? {})) if (ts > dayAgo && S.bySha.has(s)) recentIx.add(S.bySha.get(s)!);
-  const hardSkips = new Set(Object.entries(profile.skips ?? {}).filter(([, c]) => c >= 2).map(([s]) => s));
+  const hardSkips = new Set([...Object.entries(profile.skips ?? {}).filter(([, c]) => c >= 2).map(([s]) => s), ...(profile.dislikes ?? [])]);
 
   // Target: mood centroid, bent by steers, a map point, and this listener's likes.
   const pool = S.tracks.map((t, i) => i).filter((i) => mood.member(S.tracks[i]));
@@ -77,10 +78,13 @@ export function buildQueue(req: QueueReq, profile: Profile, now = new Date(), se
   const likes = likeShas.slice(-60).filter((s) => S.bySha.has(s)).map((s) => S.bySha.get(s)!);
   const skipped = Object.keys(profile.skips ?? {}).slice(-40).filter((s) => S.bySha.has(s)).map((s) => S.bySha.get(s)!);
 
-  // A station mix: its plays in the library, newest first, then map neighbours.
+  // A station mix: what it actually played, newest first: its plays we fetched (new to him), then
+  // its plays in his library; map neighbours of its sound only fill in.
   const stationRank = new Map<string, number>();
   if (mood.id.startsWith('station:')) {
-    stationById(mood.id.slice(8))?.shas.forEach((x, k) => stationRank.set(x, k));
+    const id = mood.id.slice(8);
+    const finds = S.tracks.filter((t) => stationsOf(t).includes(id)).sort((a, b) => (b.sc?.at ?? '').localeCompare(a.sc?.at ?? ''));
+    [...finds.map((t) => t.s), ...(stationById(id)?.shas ?? [])].forEach((x) => { if (!stationRank.has(x)) stationRank.set(x, stationRank.size); });
   }
   const taste = (profile.taste ?? []).map(genreById).filter((g): g is NonNullable<typeof g> => !!g);
   const base = new Float32Array(S.tracks.length);
@@ -161,15 +165,18 @@ export function buildQueue(req: QueueReq, profile: Profile, now = new Date(), se
       const c = pool.filter((i) => ok(i) && !S.tracks[i].gx);
       if (c.length) { chosen = c[Math.floor(rand() * c.length)]; isControl = true; }
     }
-    for (let pass = 0; pass < 2 && chosen === undefined; pass++) {
-      relaxed = pass === 1; // nothing fresh left: allow recent songs and artists rather than go silent
+    // Pass 0 holds the slot to what the dice asked for (a new find, or his library), so the share
+    // slider is what he hears; then any song; then recent songs and artists rather than silence.
+    for (let pass = 0; pass < 3 && chosen === undefined; pass++) {
+      relaxed = pass === 2;
       let best = -1e9;
       for (let i = 0; i < S.tracks.length; i++) {
         if (!ok(i)) continue;
         const t = S.tracks[i];
+        if (pass === 0 && isNew(t, profile) !== wantNew) continue;
         let sc = base[i] - 0.8 * Math.abs(t.e - arc);
-        sc += (isNew(t, profile) ? 1 : 0) === (wantNew ? 1 : 0) ? 0.45 : 0;
-        if (stationRank.size) sc += stationRank.has(t.s) === (slot % 2 === 0) ? 0.8 : 0; // half its plays, half its sound
+        sc += isNew(t, profile) === wantNew ? 0.45 : 0;
+        if (stationRank.size && stationRank.has(t.s)) sc += 0.8; // its plays before its sound
         if (prev !== undefined) {
           const link = dot(S.vec[i], S.vec[prev]);
           if (turn) sc += S.tracks[prev].c !== t.c && link > 0.3 && link < 0.75 ? 0.4 : -0.4;
@@ -195,19 +202,20 @@ function reasonsFor(S: Loaded, i: number, prev: number | undefined, turn: boolea
   const t = S.tracks[i];
   const r: string[] = [];
   if (liked !== undefined) r.push(`near your like: ${S.tracks[liked].a}`);
-  if (prev !== undefined) {
+  const src = sourceOf(t);
+  if (src) r.push(src.why); // its real source first: the station that played it, the scout, a request
+  if (prev !== undefined && !t.px && !S.tracks[prev].px) { // a stand-in vector makes no map claims
     const link = dot(S.vec[i], S.vec[prev]);
     if (turn && S.tracks[prev].c !== t.c) r.push(`left turn into ${S.clusterName[t.c]}`);
     else if (link > 0.8) r.push(`next door to ${S.tracks[prev].a} on the map`);
   }
-  if (t.q > 0.85) r.push(`from the map's quiet corner`);
-  if (t.sc?.src) r.push(t.sc.src === 'triplej' ? 'heard on triple j' : t.sc.src === 'shazam' ? 'from a Shazam' : t.sc.src === 'request' ? 'just pulled this in for you' : t.sc.src.startsWith('radio:') ? `heard on ${t.sc.src.slice(6).toUpperCase()}` : 'a scout find');
+  if (t.q > 0.85 && !t.px) r.push(`from the map's quiet corner`);
   if (rule.id === 'afternoon' && t.h > 0.75) r.push('afternoon: heavy hours');
   if (rule.id === 'morning' && t.e < 0.35) r.push('morning, easing in');
   if (rule.id === 'late' && t.e < 0.3) r.push('late, low and slow');
   if (!r.length && p.style === 'discovery' && t.p === 0) r.push('a deep cut');
   if (!r.length && t.p >= 3) r.push('in heavy rotation');
-  if (!r.length) r.push(t.y ? `${t.g || t.k}, ${t.y}` : `${t.g || t.k}`);
+  if (!r.length) r.push(t.y ? `${t.g || t.k}, ${t.y}` : t.g || (t.px ? 'new to you' : t.k));
   return r.slice(0, 2);
 }
 
@@ -217,7 +225,7 @@ function lineFor(S: Loaded, i: number, prev: number | undefined, reasons: string
   const t = S.tracks[i];
   const own = S.lines[t.s];
   const parts: string[] = [];
-  if (prev !== undefined) {
+  if (prev !== undefined && !t.px && !S.tracks[prev].px) {
     const p = S.tracks[prev];
     const link = dot(S.vec[i], S.vec[prev]);
     const de = t.e - p.e;
@@ -227,10 +235,11 @@ function lineFor(S: Loaded, i: number, prev: number | undefined, reasons: string
     else parts.push(`After ${p.a}, ${lift}.`);
   }
   if (own) parts.push(own);
+  else if (t.px) parts.push(`${t.a}, new to you${reasons[0] && sourceOf(t) ? `: ${reasons[0]}` : ''}.`);
   else {
     const where = S.clusterName[t.c].split(' · ')[0].toLowerCase();
     parts.push(`${t.a}${t.y ? `, ${t.y}` : ''}, out of ${where}.`);
   }
-  if (t.sc?.why && !own) parts.push(t.sc.why);
+  if (t.sc?.why && !own && !t.px && !stationsOf(t).length && !t.sc.src.includes(':')) parts.push(t.sc.why); // the scout's own note, not a lane tag
   return parts.join(' ');
 }

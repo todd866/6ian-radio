@@ -3,8 +3,10 @@
 //   <audio> -> MediaElementSource -> music gain (ducking) -> master -> speakers
 //   DJ reply buffers ------------------> reply gain -----------^
 // The element is same-origin (/api/audio/...) so Web Audio can read it without bucket CORS.
-// On iOS the graph is built only when the mic is turned on (so lock-screen playback keeps working);
-// elsewhere it is built on first play. Once built it stays for the session.
+// On iOS the graph is built only when the mic is turned on (so lock-screen playback keeps working,
+// and the music is never resampled through Web Audio on a car or Bluetooth route); a DJ reply with
+// the mic off plays on its own element instead. Elsewhere it is built on first play. Once built it
+// stays for the session.
 
 export type Engine = ReturnType<typeof createEngine>;
 
@@ -17,6 +19,7 @@ export function createEngine(el: HTMLAudioElement, silent: boolean) {
   let reply: GainNode | null = null;
   let master: GainNode | null = null;
   let current: AudioBufferSourceNode | null = null;
+  let replyEl: HTMLAudioElement | null = null; // iOS with the mic off: replies on their own element
   let userPaused = true;
   let guard = false; // set while voice is live: an unexpected pause is resumed at once
   const gaps: number[] = [];
@@ -31,10 +34,18 @@ export function createEngine(el: HTMLAudioElement, silent: boolean) {
     master.gain.value = silent ? 0 : 1; // silent QA: the real graph runs, the output is zero
     src.connect(music).connect(master).connect(ctx.destination);
     reply.connect(master);
-    ctx.onstatechange = () => { if (ctx?.state === 'suspended' || (ctx?.state as string) === 'interrupted') ctx?.resume().catch(() => {}); };
+    // Never fight the system for the audio session. iOS 'interrupts' the context for keyboard dictation, Siri and
+    // calls; resuming at once grabbed the session back and blocked dictation in every app while 6IAN was open
+    // (Ian, 19 Nov 2026). A plain 'suspended' context (iOS backgrounding) is resumed while the music is meant to be
+    // playing, including in the background: skipping that stopped background playback (Ian, 19 Nov 09:09).
+    ctx.onstatechange = () => { if (ctx?.state === 'suspended' && !userPaused) ctx.resume().catch(() => {}); };
     return ctx;
   }
 
+  // Anything else that plays (the live stream) stops when the music starts: two streams at once
+  // through a car or Bluetooth route is the garbling heard on CarPlay (19 Nov).
+  const others = new Set<() => void>();
+  el.addEventListener('play', () => { for (const f of others) f(); });
   el.addEventListener('pause', () => {
     if (!userPaused && guard && !el.ended) el.play().catch(() => {});
   });
@@ -63,6 +74,15 @@ export function createEngine(el: HTMLAudioElement, silent: boolean) {
       music.gain.setTargetAtTime(level, ctx.currentTime, seconds / 3);
     },
     async say(wav: ArrayBuffer): Promise<void> {
+      if (IOS && !ctx) {
+        // iOS, mic off: never pull the music into an AudioContext just to speak a reply.
+        this.stopReply();
+        const r = new Audio(URL.createObjectURL(new Blob([wav], { type: 'audio/wav' })));
+        r.setAttribute('playsinline', '');
+        if (silent) r.muted = true;
+        replyEl = r;
+        return new Promise((done) => { const end = () => { if (replyEl === r) replyEl = null; URL.revokeObjectURL(r.src); done(); }; r.onended = end; r.onerror = end; r.play().catch(end); });
+      }
       const c = this.ensure();
       const buf = await c.decodeAudioData(wav.slice(0));
       this.stopReply();
@@ -71,9 +91,10 @@ export function createEngine(el: HTMLAudioElement, silent: boolean) {
       current = s;
       return new Promise((done) => { s.onended = () => { if (current === s) current = null; done(); }; s.start(); });
     },
-    stopReply() { try { current?.stop(); } catch {} current = null; },
-    get speaking() { return !!current; },
+    stopReply() { try { current?.stop(); } catch {} current = null; if (replyEl) { replyEl.pause(); replyEl = null; } },
+    get speaking() { return !!current || !!replyEl; },
     context() { return ctx; },
+    onMusicPlay(f: () => void) { others.add(f); return () => others.delete(f); },
     gaps,
   };
 }

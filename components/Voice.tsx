@@ -135,12 +135,25 @@ export function useVoice({ engine, cur, onResult }: { engine: () => Engine | nul
     stream.current?.getTracks().forEach((t) => t.stop()); stream.current = null;
     const e = engine();
     e?.duck(1);
+    // Back to a playback session: 'play-and-record' left on routes a car or Bluetooth to the hands-free (call
+    // quality) profile. 'playback' (not 'auto') keeps the music going in the background and on the lock screen;
+    // 'auto' stopped it there (Ian, 19 Nov 09:09). Dictation was blocked by the held mic and the auto-resume, not this.
+    const nav = navigator as unknown as { audioSession?: { type: string } };
+    if (final && nav.audioSession) nav.audioSession.type = 'playback';
     if (final) { e?.setGuard(false); set('off'); }
   }, [engine]);
 
   const stopRef = useRef(stop);
   stopRef.current = stop;
   useEffect(() => () => stopRef.current(), []); // on unmount only
+  // The mic is only ever live while 6IAN is on screen: leaving it listening in the background held the iPhone's
+  // microphone, so keyboard dictation in other apps could not start (Ian, 19 Nov 2026). The music keeps playing.
+  useEffect(() => {
+    const away = (e: Event) => { if ((e.type === 'pagehide' || document.hidden) && live.current) stopRef.current(true); };
+    document.addEventListener('visibilitychange', away);
+    window.addEventListener('pagehide', away);
+    return () => { document.removeEventListener('visibilitychange', away); window.removeEventListener('pagehide', away); };
+  }, []);
 
   const on = state !== 'off' && state !== 'denied' && state !== 'error';
   return { state, label: LABEL[state], heard, on, start, stop, send: (text: string) => send({ text }) };

@@ -53,7 +53,7 @@ export async function sessionId(): Promise<string | null> {
 }
 
 export async function currentAccount(): Promise<Account | null> {
-  const id = await sessionId();
+  const id = await sessionId(); // the session cookie only (lib/device.ts is separate and opt-in)
   if (!id) return null;
   const a = await getAccount(id).catch(() => null);
   return a ? { id: a.id, name: a.name, style: a.style, email: a.email } : null;
