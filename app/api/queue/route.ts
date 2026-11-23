@@ -7,6 +7,7 @@ import { present } from '@/lib/present';
 import { space, refreshExtra } from '@/lib/space';
 import { localClock } from '@/lib/rules';
 import { playableFor, uaCanAlac } from '@/lib/playable';
+import { ratingOf } from '@/lib/rating';
 
 export async function POST(req: Request) {
   const a = await requireAccountOrDevice(req);
@@ -19,13 +20,15 @@ export async function POST(req: Request) {
   if (fresh) await refreshExtra(true);
   const lossless = !!body.lossless;
   const canAlac = typeof body.canAlac === 'boolean' ? body.canAlac : uaCanAlac(req.headers.get('user-agent') ?? '');
-  const playable = playableFor(m, canAlac || lossless);
+  const playable = playableFor(m, canAlac || lossless, ratingOf(req));
+  // A song asked for by name plays whatever the rating: PG only shapes what the radio picks itself.
+  if (typeof body.start === 'string' && (canAlac || lossless || m[body.start]?.aac)) playable.add(body.start);
   const now = new Date();
   const { picks, rule, mood } = buildQueue({ mood: body.mood, anchor: body.anchor, steer: body.steer, point: body.point, history: body.history, n: body.n, playable, tilt: body.tilt, start: body.start, era: body.era }, profile, now);
   return NextResponse.json({
     // A device (Glancebar) plays the lossless master from its own hot set: it needs the catalogue path.
     picks: picks.map((p) => ({ ...present(p, a.id, a.style, mood.id, m), ...(a.via === 'device' ? { key: S.tracks[p.i].key } : {}) })),
     mood: mood.id, rule: { id: rule.id, label: rule.label }, clock: localClock(now, profile.tz), tz: profile.tz,
-    playable: playable.size,
+    playable: playable.size, rating: ratingOf(req),
   }, { headers: noStore });
 }

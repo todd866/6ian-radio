@@ -286,7 +286,11 @@ html, body { overflow-x: hidden; max-width: 100%; }
 
 /* now playing */
 .np { position: absolute; inset: 0; z-index: 10; background: var(--tint); display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto auto; gap: 10px; padding: env(safe-area-inset-top) 16px 0; }
-.nphead { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; height: 48px; text-align: center; font-size: 12px; color: var(--ink-2); }
+.nphead { display: grid; grid-template-columns: 88px 1fr 88px; align-items: center; height: 48px; text-align: center; font-size: 12px; color: var(--ink-2); }
+.nphead > button:first-child { justify-self: start; width: 44px; }
+.nphead .npright { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.nphead .rating { min-width: 30px; height: 22px; padding: 0 5px; border: 1.5px solid currentColor; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0; color: var(--ink-2); }
+.nphead .rating.m { color: var(--signal); }
 .nphead .mic { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; justify-self: end; }
 .npart { min-height: 0; display: flex; justify-content: center; }
 .npart .sleeve { border-radius: 8px; }
@@ -385,3 +389,11 @@ a.src:hover { color: var(--signal); }
 @media (min-width: 900px) { .facts div { grid-template-columns: 140px minmax(0, 1fr) auto 22px; } }
 .npplayer .npartist { text-align: left; display: block; }
 .whyinfo .facts { border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+
+/* Phone as the remote for the Mac that is playing (lib/remote.ts) */
+.remotebar { display: grid; grid-template-columns: 20px minmax(0, 1fr) repeat(5, 34px); align-items: center; gap: 4px; min-height: 44px; padding: 4px 10px; background: var(--signal); color: #100f0d; font-size: 13px; }
+.remotebar .rt { min-width: 0; width: 100%; height: auto; min-height: 36px; display: block; text-align: left; padding: 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: none; border: 0; font: inherit; cursor: pointer; }
+.remotebar .rt.open { white-space: normal; word-break: break-word; padding: 4px 2px; }
+.remotebar .rt i { font-style: normal; opacity: .75; }
+.remotebar > button:not(.rt) { width: 34px; height: 36px; display: grid; place-items: center; color: inherit; }
+.remotebar > button.liked { opacity: 1; font-weight: 700; }

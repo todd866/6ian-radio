@@ -5,6 +5,7 @@ import { loadProfile } from '@/lib/profile';
 import { media } from '@/lib/media';
 import { buildQueue, isNew } from '@/lib/engine';
 import { playableFor, uaCanAlac } from '@/lib/playable';
+import { ratingOf } from '@/lib/rating';
 import { chipsFor } from '@/lib/present';
 import { GENRES, WU, UNDERGROUND } from '@/lib/genres';
 import { stations } from '@/lib/stations';
@@ -20,7 +21,7 @@ export async function GET(req: Request) {
   await refreshExtra();
   const [p, m] = await Promise.all([loadProfile(a, isQa(req)), media()]);
   const S = space();
-  const playable = playableFor(m, uaCanAlac(req.headers.get('user-agent') ?? ''));
+  const playable = playableFor(m, uaCanAlac(req.headers.get('user-agent') ?? ''), ratingOf(req));
   const ok = (t: Track) => playable.has(t.s) && !t.gx && !!m[t.s]?.art; // no cover, no tile
   const color = (t: Track) => m[t.s]?.color ?? `hsl(${parseInt(t.s.slice(0, 4), 16) % 360} 40% 35%)`;
   const songTile = (t: Track): Tile => ({ kind: 'song', s: t.s, title: t.t, sub: `${t.a}${t.y ? ` · ${t.y}` : ''}`, artist: t.a, art: !!m[t.s]?.art, color: color(t) });

@@ -28,6 +28,9 @@ function post(url: string, body: unknown) {
 export default function Radio({ name, style, init }: { name: string; style: string; init: Initial }) {
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [mood, setMood] = useState(init.mood);
+  const [rating, setRating] = useState<'pg' | 'm'>(init.rating ?? 'pg');
+  // The Mac playing for this account (its bridge heartbeats surface "mac"): the phone becomes its remote.
+  const [remote, setRemote] = useState<{ title?: string; artist?: string; state?: string; liked?: boolean; host: string } | null>(null);
   const [past, setPast] = useState<Presented[]>([]);
   const [cur, setCur] = useState<Presented | null>(init.picks[0] ?? null);
   const [next, setNext] = useState<Presented[]>(init.picks.slice(1));
@@ -128,6 +131,34 @@ export default function Radio({ name, style, init }: { name: string; style: stri
     }
   }, [cur, next, mood, history, lossless, canLossless]);
 
+  useEffect(() => {
+    let stop = false;
+    const poll = async () => {
+      if (document.visibilityState !== 'visible') return;
+      const j = await fetch('/api/device/now', { headers: qaHeaders() }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      if (stop || !j) return;
+      const mac = (j.all ?? []).find((d: { surface: string; live: boolean }) => d.surface === 'mac' && d.live) ?? null;
+      setRemote(mac);
+    };
+    poll();
+    const t = setInterval(poll, 5000);
+    return () => { stop = true; clearInterval(t); };
+  }, []);
+  const sendRemote = useCallback(async (cmd: string) => {
+    if (cmd === 'toggle') setRemote((r) => (r ? { ...r, state: r.state === 'playing' ? 'paused' : 'playing' } : r));
+    if (cmd === 'like') setRemote((r) => (r ? { ...r, liked: !r.liked } : r));
+    const r = await post('/api/remote', { cmd }).catch(() => null);
+    if (!r?.ok) setErr('The Mac did not get that. Try again.');
+  }, []);
+
+  const toggleRating = useCallback(async () => {
+    const want = rating === 'pg' ? 'm' : 'pg';
+    const r = await post('/api/rating', { rating: want }).catch(() => null);
+    if (!r?.ok) return;
+    setRating(want);
+    refill({ replace: true, force: true }); // the songs lined up were picked under the old rating
+  }, [rating, refill]);
+
   const event = useCallback((t: Presented, ev: string) => {
     const a = audio.current;
     return post('/api/event', { pt: t.pt, ev, pos: a?.currentTime ?? 0 }).catch(() => undefined);
@@ -185,6 +216,7 @@ export default function Radio({ name, style, init }: { name: string; style: stri
   }, [cur, event, refill, advance]);
 
   const tune = useCallback(async (m: string, point?: { x: number; y: number }) => {
+    if (remote && !playing && !point) sendRemote(`mood:${m}`); // the Mac is the player: steer it too
     setMood(m);
     steer.current = [];
     era.current = null;
@@ -195,7 +227,7 @@ export default function Radio({ name, style, init }: { name: string; style: stri
       if (cur) setPast((p) => [...p, cur].slice(-30));
       setCur(n); setNext(rest); load(n, false);
     }
-  }, [refill, cur, playing, load]);
+  }, [refill, cur, playing, load, remote, sendRemote]);
 
   // Re-plan and switch to the first new pick at once, so a spoken command is heard, not queued.
   const jump = useCallback(async (opts: Parameters<typeof refill>[0]) => {
@@ -336,12 +368,23 @@ export default function Radio({ name, style, init }: { name: string; style: stri
     if (t.s) playSha(t.s);
   }, [playSha, voice]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const playChip = useCallback((c: { id: string; era?: { from: number; to: number } }) => {
+  const playChip = useCallback((c: { id: string; label?: string; era?: { from: number; to: number } }) => {
     steer.current = [];
+    if (remote && !playing && !c.era) {
+      // The Mac is playing to the speakers: steer Glancebar instead of hijacking Bluetooth on the phone.
+      era.current = null;
+      setMood(c.id);
+      sendRemote(`mood:${c.id}`);
+      refill({ replace: true, mood: c.id }).then((picks) => {
+        if (picks?.length) { const [n, ...rest] = picks; setCur(n); setNext(rest); load(n, false); }
+      });
+      setErr(`Playing ${c.label ?? c.id} on ${remote.host}`);
+      return;
+    }
     if (c.era) { era.current = c.era; setMood('wide'); jump({ mood: 'wide', era: c.era }).then(() => eng.current?.play().catch(() => {})); }
     else { era.current = null; setMood(c.id); jump({ mood: c.id }).then(() => eng.current?.play().catch(() => {})); }
     setView('np');
-  }, [jump]);
+  }, [jump, remote, playing, sendRemote, refill, load]);
 
   const playNext = useCallback(async (t: TileT) => {
     const r = await post('/api/queue', { mood, start: t.s, n: 1, canAlac: canLossless });
@@ -367,9 +410,17 @@ export default function Radio({ name, style, init }: { name: string; style: stri
     live.current?.pause(); setLiveOn(null);
     steer.current = []; era.current = null;
     setMood(`station:${st.id}`);
+    if (remote && !playing) {
+      sendRemote(`mood:station:${st.id}`);
+      refill({ replace: true, mood: `station:${st.id}` }).then((picks) => {
+        if (picks?.length) { const [n, ...rest] = picks; setCur(n); setNext(rest); load(n, false); }
+      });
+      setErr(`Playing ${st.name} mix on ${remote.host}`);
+      return;
+    }
     jump({ mood: `station:${st.id}` }).then(() => eng.current?.play().catch(() => {}));
     setView('np');
-  }, [jump]);
+  }, [jump, remote, playing, sendRemote, refill, load]);
   // The music element starting (skip, a tile, the car's next button) ends the live stream.
   useEffect(() => {
     const off = eng.current?.onMusicPlay(() => { if (live.current && !live.current.paused) live.current.pause(); setLiveOn(null); });
@@ -379,6 +430,8 @@ export default function Radio({ name, style, init }: { name: string; style: stri
     if (!st.live) return;
     eng.current?.pause();
     if (!live.current) { live.current = new Audio(); live.current.setAttribute('playsinline', ''); if (silent.current) live.current.muted = true; }
+    const nav = navigator as unknown as { audioSession?: { type: string } };
+    if (nav.audioSession && nav.audioSession.type !== 'play-and-record') nav.audioSession.type = 'playback'; // background-safe (see engine.play)
     live.current.src = st.live; live.current.play().catch(() => {});
     setLiveOn({ name: st.name });
     if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: `${st.name} (live)`, artist: st.name });
@@ -392,6 +445,21 @@ export default function Radio({ name, style, init }: { name: string; style: stri
 
   return (
     <div className="app2" data-playing={playing ? '1' : '0'}>
+      {remote && !playing && (
+        <div className="remotebar" data-testid="remote" title={`Playing on ${remote.host}`}>
+          <Icon n="disc" size={18} />
+          <button type="button" className="rt" aria-label={`Playing on ${remote.host}: ${[remote.title, remote.artist].filter(Boolean).join(' · ') || 'Mac'}`}
+            title={[remote.title, remote.artist].filter(Boolean).join(' · ')}
+            onClick={(e) => e.currentTarget.classList.toggle('open')}>
+            {remote.title ?? 'Playing on the Mac'}{remote.artist ? <i> · {remote.artist}</i> : null}
+          </button>
+          <button aria-label="Dislike on the Mac" onClick={() => sendRemote('dislike')} data-testid="remote-dislike"><Icon n="thumbdown" size={18} /></button>
+          <button aria-label="Previous on the Mac" onClick={() => sendRemote('prev')} data-testid="remote-prev"><Icon n="prev" size={18} /></button>
+          <button aria-label={remote.state === 'paused' ? 'Play on the Mac' : 'Pause the Mac'} onClick={() => sendRemote('toggle')} data-testid="remote-toggle"><Icon n={remote.state === 'paused' ? 'play' : 'pause'} size={20} /></button>
+          <button aria-label="Next on the Mac" onClick={() => sendRemote('next')} data-testid="remote-next"><Icon n="next" size={20} /></button>
+          <button aria-label={remote.liked ? 'Unlike on the Mac' : 'Like on the Mac'} aria-pressed={!!remote.liked} className={remote.liked ? 'liked' : ''} onClick={() => sendRemote('like')} data-testid="remote-like"><Icon n={remote.liked ? 'thumbup-on' : 'thumbup'} size={18} /></button>
+        </div>
+      )}
       <header className="bar">
         <button className="logo" onClick={() => { setResults(null); setStationPage(null); setView('home'); }} aria-label="Home">6<b>IAN</b></button>
         <form className="searchbox" onSubmit={(e) => { e.preventDefault(); const q = new FormData(e.currentTarget).get('q') as string; if (q?.trim()) search(q.trim()); }}>
@@ -439,7 +507,12 @@ export default function Radio({ name, style, init }: { name: string; style: stri
           <div className="nphead">
             <button onClick={() => setView('home')} aria-label="Back to home" data-testid="np-close"><Icon n="down" size={24} /></button>
             <span>{liveOn ? 'Live radio' : 'Now playing'}</span>
-            <MicButton v={voice} />
+            <div className="npright">
+              <button className={`rating ${rating}`} onClick={toggleRating} data-testid="rating"
+                aria-label={rating === 'pg' ? 'Rated PG: explicit songs are skipped. Tap to allow them for 4 hours' : 'Rated M: explicit songs allowed. Tap to go back to PG'}
+                title={rating === 'pg' ? 'PG: explicit songs skipped (tap for M, 4 h)' : 'M: explicit allowed (tap for PG)'}>{rating === 'pg' ? 'PG' : 'M'}</button>
+              <MicButton v={voice} />
+            </div>
           </div>
           <div className="npbody">
             <div className="npplayer">

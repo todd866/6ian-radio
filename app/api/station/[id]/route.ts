@@ -3,6 +3,7 @@ import { requireAccount, noStore } from '@/lib/http';
 import { space, refreshExtra, centroid, dot } from '@/lib/space';
 import { media } from '@/lib/media';
 import { playableFor, uaCanAlac } from '@/lib/playable';
+import { ratingOf } from '@/lib/rating';
 import { stationById } from '@/lib/stations';
 import { stationsOf } from '@/lib/source';
 
@@ -16,7 +17,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   await refreshExtra();
   const S = space();
   const m = await media();
-  const playable = playableFor(m, uaCanAlac(req.headers.get('user-agent') ?? ''));
+  const playable = playableFor(m, uaCanAlac(req.headers.get('user-agent') ?? ''), ratingOf(req));
   const ok = (s: string) => playable.has(s) && !!m[s]?.art && !S.tracks[S.bySha.get(s)!]?.gx;
   const tile = (s: string) => { const t = S.tracks[S.bySha.get(s)!]; return { kind: 'song', s, title: t.t, sub: `${t.a}${st.played[s] ? ` · ${new Date(`${st.played[s]}T00:00:00Z`).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' })}` : t.nw ? ' · new to you' : t.y ? ` · ${t.y}` : ''}`, artist: t.a, art: true, color: m[s]?.color ?? st.color }; };
   // What it played: finds we fetched because it played them (new to him) first, then library matches.

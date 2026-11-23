@@ -54,7 +54,7 @@ export async function refreshExtra(force = false): Promise<void> {
 // the worker. Each gets a stand-in vector, the centroid of songs by the same artist, else its seed
 // artist, else what its station(s) played, so mood and station queues can use it. Marked px: the
 // app never claims map nearness for it, and no year or genre is invented (shown blank).
-type LaneRow = { sha: string; artist: string; title: string; tag?: string; seed?: string | null; why?: string | null; at?: string };
+type LaneRow = { sha: string; artist: string; title: string; xr?: string; tag?: string; seed?: string | null; why?: string | null; at?: string };
 async function placeUnembedded(S: Loaded) {
   const { getJSON } = await import('./r2');
   const { media } = await import('./media');
@@ -77,7 +77,7 @@ async function placeUnembedded(S: Loaded) {
     const mode = <T,>(xs: T[]) => { const c = new Map<T, number>(); for (const x of xs) c.set(x, (c.get(x) ?? 0) + 1); return [...c].sort((a, b) => b[1] - a[1])[0][0]; };
     const avg = (f: (t: Track) => number) => Math.round((ts.reduce((a, t) => a + f(t), 0) / ts.length) * 1000) / 1000;
     const t: Track = { s: r.sha, a: r.artist, t: r.title, al: '', y: null, g: '', p: 0, f: 0, k: mode(ts.map((x) => x.k)), key: '', x: avg((x) => x.x), yy: avg((x) => x.yy),
-      c: mode(ts.map((x) => x.c)), e: avg((x) => x.e), h: avg((x) => x.h), q: avg((x) => x.q), n: [], v: '', nw: 1, sc, px: 1 };
+      c: mode(ts.map((x) => x.c)), e: avg((x) => x.e), h: avg((x) => x.h), q: avg((x) => x.q), n: [], v: '', nw: 1, sc, px: 1 , ...(r.xr ? { xr: r.xr } : {}) } as Track;
     S.bySha.set(t.s, S.tracks.length);
     S.tracks.push(t);
     S.vec.push(v);

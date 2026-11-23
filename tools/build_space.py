@@ -79,6 +79,19 @@ def quality_gate(rows, cat):
     for t in lib:
         if t.get('dislike'):
             disliked.add(match_key(t.get('artist', ''), t.get('title', '')))
+    quarantined = set()
+    lib_cfg = HOME / '.config/glancebar/music-library.json'
+    if lib_cfg.is_file():
+        try:
+            quarantined.update(json.loads(lib_cfg.read_text()).get('quarantine_sha256') or [])
+        except (OSError, ValueError):
+            pass
+    trunc_p = HOME / '.local/state/music-core/truncated-masters-2026-11-22.json'
+    if trunc_p.is_file():
+        try:
+            quarantined.update(x['sha256'] for x in json.loads(trunc_p.read_text()) if isinstance(x, dict) and x.get('sha256'))
+        except (OSError, ValueError):
+            pass
     groups = collections.defaultdict(list)
     for r in rows:
         r['d'] = round(durs.get(r['s'], 0), 1)
@@ -88,7 +101,9 @@ def quality_gate(rows, cat):
             r['gl'] = 1
         reason = None
         size = cat[r['s']]['sizeBytes']
-        if 'children' in r['g'].lower():
+        if r['s'] in quarantined or (r['d'] and r['d'] < 25):
+            reason = 'truncated'
+        elif 'children' in r['g'].lower():
             reason = "kids' music"
         elif GATE_SKIT.search(r['t']):
             reason = 'skit/intro/interlude'
@@ -110,6 +125,30 @@ def quality_gate(rows, cat):
     return dict(collections.Counter(r['gx'] for r in rows if r.get('gx')))
 
 
+def fill_from_coverage_map(idx, V):
+    """Dual map (Ian, 21 Nov 2026: "only use high detail 3072D as available"). Songs with a Gemini
+    vector keep it. Songs only in the EmbeddingGemma coverage map (vectors-gemma/, 768-D) get their
+    vector through the relation map's 768->3072 projection (vectors/relation/), in memory only, and
+    are tagged mp='gemma' in space.json. Missing coverage or relation files: Gemini only, as before."""
+    emb = DEF['vectors'].parent
+    gdir, rdir = emb / 'vectors-gemma', DEF['vectors'] / 'relation'
+    try:
+        from relation import load_projection, apply_projection
+        W, meta = load_projection(rdir)
+        gidx = [json.loads(l) for l in (gdir / 'tracks-index.jsonl').read_text().splitlines() if l.strip()]
+        E = np.fromfile(gdir / 'tracks.f32', dtype='<f4').reshape(len(gidx), int(meta.get('dimIn', 768)))
+    except (ImportError, OSError, ValueError) as e:
+        print(f'coverage map not used: {e}', file=sys.stderr)
+        return idx, V, 0
+    have = {m['id'] for m in idx}
+    extra = [i for i, m in enumerate(gidx) if m['id'] not in have]
+    if not extra:
+        return idx, V, 0
+    P = apply_projection(E[extra], W)
+    rows = [dict(gidx[i], mp='gemma') for i in extra]
+    return idx + rows, np.vstack([V, P]).astype(np.float32), len(extra)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=str(Path(__file__).resolve().parent.parent / 'data/space.json'))
@@ -119,6 +158,7 @@ def main():
     idx = [json.loads(l) for l in (DEF['vectors'] / 'tracks-index.jsonl').read_text().splitlines() if l.strip()]
     V = np.fromfile(DEF['vectors'] / 'tracks.f32', dtype='<f4').reshape(len(idx), DIM)
     V /= np.linalg.norm(V, axis=1, keepdims=True) + 1e-9
+    idx, V, filled = fill_from_coverage_map(idx, V)
     cat = {e['sha256']: e for e in json.loads(DEF['catalogue'].read_text())['entries']}
     lib = json.loads(DEF['library'].read_text())['tracks']
     space = json.loads(DEF['space'].read_text())['tracks']
@@ -176,6 +216,8 @@ def main():
         rows.append(dict(s=sha, a=artist, t=title, al=tags.get('album') or m.get('album', ''),
                          y=L.get('year'), g=L.get('genre') or '', p=int(L.get('plays') or 0),
                          f=int(L.get('fav') or 0), k=kind, key=c['relativePath']))
+        if m.get('mp'):
+            rows[-1]['mp'] = m['mp']  # vector from the coverage map, not Gemini
         sc = scout.get(sha) or scout.get(c['relativePath'])
         if sc:
             rows[-1]['sc'] = sc

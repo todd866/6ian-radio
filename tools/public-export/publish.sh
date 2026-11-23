@@ -11,6 +11,7 @@ mode="${1:-stage}"
 [ -d "$PUBLIC_DIR/.git" ] || { echo "publish: $PUBLIC_DIR is not a git checkout" >&2; exit 1; }
 [ "$(git -C "$PUBLIC_DIR" remote get-url origin)" != "$(git -C "$ROOT" remote get-url origin)" ] || { echo "publish: public checkout points at the private remote" >&2; exit 1; }
 CAND="$(mktemp -d)/candidate"
+trap 'rm -rf "$(dirname "$CAND")"' EXIT
 python3 "$HERE/export.py" --out "$CAND"
 gitleaks dir "$CAND" --no-banner --exit-code 1 >/dev/null 2>&1 || { echo "publish: gitleaks found a secret" >&2; exit 1; }
 git -C "$PUBLIC_DIR" rm -rqf --ignore-unmatch . >/dev/null
@@ -19,6 +20,11 @@ git -C "$PUBLIC_DIR" add -A
 git -C "$PUBLIC_DIR" status --short | head -60
 src="$(git -C "$ROOT" rev-parse --short HEAD)"
 [ "$mode" = --push ] || { echo "publish: staged in $PUBLIC_DIR (private $src)"; exit 0; }
-git -C "$PUBLIC_DIR" diff --cached --quiet || git -C "$PUBLIC_DIR" commit -qm "Sync from the working repository ($src)"
+if ! git -C "$PUBLIC_DIR" diff --cached --quiet; then
+  GIT_AUTHOR_NAME="todd866" GIT_AUTHOR_EMAIL="todd866@users.noreply.github.com" \
+  GIT_COMMITTER_NAME="todd866" GIT_COMMITTER_EMAIL="todd866@users.noreply.github.com" \
+    git -C "$PUBLIC_DIR" -c commit.gpgsign=false commit -qm "Sync from the working repository ($src)"
+fi
+git -C "$PUBLIC_DIR" log -1 --format='%an <%ae> / %cn <%ce>' | grep -qv gmail
 git -C "$PUBLIC_DIR" push -q origin HEAD:main
 echo "publish: pushed (private $src)"

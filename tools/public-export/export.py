@@ -21,7 +21,7 @@ GENERIC = [
     ('private-key', re.compile(r'-----BEGIN [A-Z ]*PRIVATE KEY-----')),
     ('api-key', re.compile(r'\b(AIza[0-9A-Za-z_-]{30,}|re_[0-9A-Za-z]{20,}|sk-[0-9A-Za-z]{20,})\b')),
 ]
-ALLOWED = {'noreply@example.com', 'you@example.com'}
+ALLOWED = {'noreply@example.com', 'you@example.com', 'todd866@users.noreply.github.com'}
 SKIP_SCAN = {'package-lock.json'}  # registry URLs and integrity hashes only
 
 
@@ -53,10 +53,11 @@ def main():
         else:
             shutil.copy2(src, dst)
     for f in (HERE / 'public').rglob('*'):  # README, LICENSE, .env.example, docs, .gitignore
-        if f.is_file():
-            dst = out / f.relative_to(HERE / 'public')
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(f, dst)
+        if not f.is_file() or f.name == '.DS_Store':
+            continue
+        dst = out / f.relative_to(HERE / 'public')
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(f, dst)
     bad = []
     for f in out.rglob('*'):
         rel = str(f.relative_to(out))

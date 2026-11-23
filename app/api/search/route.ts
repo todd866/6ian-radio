@@ -3,6 +3,7 @@ import { requireAccount, noStore } from '@/lib/http';
 import { space, refreshExtra } from '@/lib/space';
 import { media } from '@/lib/media';
 import { playableFor, uaCanAlac } from '@/lib/playable';
+import { ratingOf } from '@/lib/rating';
 import { norm } from '@/lib/search';
 
 // Search results as art tiles: any word in title or artist, best matches first; ?artist= for an
@@ -15,7 +16,7 @@ export async function GET(req: Request) {
   const q = norm(u.searchParams.get('q') ?? ''), artist = norm(u.searchParams.get('artist') ?? '');
   const S = space();
   const m = await media();
-  const playable = playableFor(m, uaCanAlac(req.headers.get('user-agent') ?? ''));
+  const playable = playableFor(m, uaCanAlac(req.headers.get('user-agent') ?? ''), ratingOf(req));
   const ws = q.split(' ').filter((w) => w.length > 1);
   const hits = S.tracks.map((t) => {
     if (!playable.has(t.s) || t.gx || !m[t.s]?.art) return null;

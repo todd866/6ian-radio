@@ -7,7 +7,7 @@ import { nowKey, isLive, SURFACE_RE, HOST_RE, type NowDoc } from '@/lib/now-play
 // small document every ~10 s; readers take the freshest live one. One writer per object, so a
 // plain PUT is enough — no compare-and-swap path here.
 
-type In = Partial<Record<'surface' | 'host' | 'sha' | 'key' | 'title' | 'artist' | 'at', unknown>> & { position?: unknown; duration?: unknown };
+type In = Partial<Record<'surface' | 'host' | 'sha' | 'key' | 'title' | 'artist' | 'at' | 'state', unknown>> & { position?: unknown; duration?: unknown; liked?: unknown };
 
 export async function PUT(req: Request) {
   const a = await requireAccountOrDevice(req);
@@ -26,6 +26,8 @@ export async function PUT(req: Request) {
     listener: a.id, surface: surface as NowDoc['surface'], host, at,
     sha: str(b.sha, 64), key: str(b.key, 200), title: str(b.title, 200), artist: str(b.artist, 200),
     position: num(b.position), duration: num(b.duration),
+    ...(b.state === 'playing' || b.state === 'paused' ? { state: b.state } : {}),
+    ...(typeof b.liked === 'boolean' ? { liked: b.liked } : {}),
     ...(a.via === 'device' && a.device ? { device: a.device } : {}),
   };
   await putJSON(nowKey(a.id, surface, host), doc);

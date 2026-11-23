@@ -3,6 +3,7 @@ import { requireAccount, noStore } from '@/lib/http';
 import { space, refreshExtra, dot } from '@/lib/space';
 import { media } from '@/lib/media';
 import { playableFor, uaCanAlac } from '@/lib/playable';
+import { ratingOf } from '@/lib/rating';
 
 // Related: the song's nearest neighbours on the map that this device can play.
 export async function GET(req: Request) {
@@ -14,7 +15,7 @@ export async function GET(req: Request) {
   const i = S.bySha.get(sha);
   if (i === undefined) return NextResponse.json({ tiles: [] });
   const m = await media();
-  const playable = playableFor(m, uaCanAlac(req.headers.get('user-agent') ?? ''));
+  const playable = playableFor(m, uaCanAlac(req.headers.get('user-agent') ?? ''), ratingOf(req));
   // A find not embedded yet has no neighbour list: songs nearest its stand-in (its artist / station).
   const near = S.tracks[i].n.length ? S.tracks[i].n.map(([j]) => j)
     : S.vec.map((v, j) => [j, dot(v, S.vec[i])] as const).filter(([j]) => j !== i).sort((x, y) => y[1] - x[1]).slice(0, 16).map(([j]) => j);

@@ -16,6 +16,8 @@ export type NowDoc = {
   position?: number;
   duration?: number;
   device?: string;
+  state?: 'playing' | 'paused'; // the Mac bridge says which, so the phone remote shows the right button
+  liked?: boolean;
 };
 
 export const NOW_LIVE_MS = 60_000;
